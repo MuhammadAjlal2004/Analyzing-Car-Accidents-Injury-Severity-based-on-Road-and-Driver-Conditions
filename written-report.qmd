@@ -1,0 +1,923 @@
+---
+title: "Injury Severity following a Car Crash"
+author: "Team 2: Muhammad Ajlal, Maria Brown, Zhiping Huang, Jerry Zhang"
+date: "20 March 2025"
+format: pdf
+execute: 
+  warning: false
+  message: false
+  echo: false
+editor: visual
+---
+
+```{r}
+#| label: load packages and data
+library(tidyverse)
+library(tidymodels)
+library(ggplot2)
+library(knitr)
+library(dplyr)
+library(kableExtra)
+library(broom)  
+library(car)
+
+crashes_original <- read.csv("data/Crash_Reporting_-_Drivers_Data.csv")
+crashes <- crashes_original
+```
+
+## Introduction
+
+**Question**
+
+What variables can impact the severity of injuries that a driver experiences following a crash? 
+
+**Background**
+
+Traffic accidents represent a major public safety concern globally. According to the World Health Organization (WHO, 2023), approximately 1.25 million people die each year due to road traffic accidents, with millions more sustaining injuries. In the United States, traffic accidents are a leading cause of injuries and fatalities, imposing substantial social and economic costs (NHTSA, 2023). Understanding the factors that influence injury severity is essential for developing targeted traffic safety policies aimed at reducing casualties and mitigating societal burdens.
+
+Existing research indicates that collision type, weather conditions, road surface conditions, driver attention, speed limit, and alcohol influence are closely related to injury severity. For example, Alam & Spainhour (2023) examined the effects of driver behavior and environmental factors on injury severity, finding that distracted driving, alcohol involvement, and adverse weather conditions significantly increased the likelihood of severe injuries (Alam & Spainhour, 2023). 
+
+Building on this foundation, our study focuses on traffic accident data from Montgomery County, Maryland, to investigate how specific road and driver conditions affect the severity of injuries resulting from crashes. By focusing on Montgomery County and carefully restructuring several categorical variables for more nuanced analysis, we aim to contribute novel insights that can inform more targeted interventions in traffic safety management.
+
+Specifically, we examine the roles of collision type, weather conditions, road surface conditions, driver distraction, speed limit, and substance use in determining injury severity. We restructure the injury severity outcomes into two categories—Suspected Serious/Fatal Injury and Suspected Minor Injury—to allow for binary logistic regression modeling. Our goal is to identify the most influential predictors of serious injury outcomes and to provide actionable, data-driven recommendations for improving road safety.
+
+## Exploratory Data Analysis
+
+**Data Description**
+
+Our dataset comes from Montgomery County of Maryland and provides information about traffic collisions occurring in Montgomery County on local roadways. The data was collected via the Automated Crash Reporting System (ACRS) of the Maryland State Police, and reported by the Montgomery County Police, Gaithersburg Police, Rockville Police, or the Maryland-National Capital Park Police.
+
+The dataset provides information about the collision. This includes the time of day, weather conditions, traffic controls, injuries, distractions, vehicle damage, speed, and more. The following is a description of our variables of interest.
+
+**Key Variables**
+
+We examine how variables like collision type, weather conditions, road surface conditions, driver attention, speed limit, driver substance abuse, vehicle damage extent and vehicle type affect injury severity. For our analysis, we are interested in determining which factors have the greatest influence on the severity of injury following a car crash. Below is a plot of the frequency at which different injury severity occurs.
+
+We will focus only on cases where injuries were proven to occur. As a result, we have rearranged the injury severity variable to have two injury categories to run a logistic regression: Suspected Serious/Fatal injury and Suspected Minor injury.
+
+```{r}
+#| label: filtering for injury severity
+
+ 
+crashes <- crashes_original
+  
+  crashes$Injury.Severity <- tolower(crashes$Injury.Severity)  # Convert to lower case  
+  crashes$Injury.Severity <- dplyr::recode(crashes$Injury.Severity,  
+                                "no apparent injury" = "No Apparent Injury",  
+                                "suspected minor injury" = 
+                                  "Suspected Minor Injury",  
+                                "possible injury" = "Possible Injury",  
+                                "suspected serious injury" = 
+                                  "Suspected Serious Injury",  
+                                "fatal injury" = "Fatal Injury") 
+  
+  filtered_crashes <- crashes |>
+    filter(Injury.Severity != "No Apparent Injury") |>
+    filter(Injury.Severity !="Possible Injury") |>
+    filter(Injury.Severity != "") |>
+    mutate(Injury.Severity = as.factor(Injury.Severity)) |>
+    mutate(Injury.Severity = dplyr::recode(Injury.Severity, "Suspected Serious Injury" = "Suspected Serious/Fatal Injury", "Fatal Injury" = "Suspected Serious/Fatal Injury"))
+  
+  
+#| label: Cleaning surface condition variable
+
+filtered_crashes$Surface.Condition <- tolower(filtered_crashes$Surface.Condition)
+ 
+filtered_crashes$Surface.Condition <- dplyr::recode(filtered_crashes$Surface.Condition,
+     "dry" = "Dry", "wet" = "Wet", 
+     "snow" = "Icy/Snowy", "slush" = "Icy/Snowy",
+     "ice" = "Icy/Snowy", "ice/frost" = "Icy/Snowy",
+     "mud, dirt, gravel" = "Other", "sand" = "Other",
+     "water (standing, moving)" = "Wet", "oil" = "Other",
+     "other" = "Other",
+     "n/a" = "Unknown"
+ )
+ 
+filtered_crashes$Surface.Condition[is.na(filtered_crashes$Surface.Condition) | filtered_crashes$Surface.Condition == "" | grepl("unknown", filtered_crashes$Surface.Condition, ignore.case = TRUE)] <- "Unknown"
+
+#| label: Cleaning substance abuse variable
+
+filtered_crashes$Driver.Substance.Abuse <- tolower(filtered_crashes$Driver.Substance.Abuse)
+ 
+ filtered_crashes$Driver.Substance.Abuse <- dplyr::recode(filtered_crashes$Driver.Substance.Abuse,
+     "none detected" = "No Substance Use",
+     "not suspect of alcohol use, not suspect of drug use" = "No Substance Use",
+     "unknown" = "Unknown",
+     "alcohol present" = "Alcohol Related",
+     "alcohol contributed" = "Alcohol Related",
+     "suspect of alcohol use, not suspect of drug use" = "Alcohol Related",
+     "suspect of alcohol use, suspect of drug use" = "Alcohol Related",
+     "illegal drug present" = "Drug Related",
+     "illegal drug contributed" = "Drug Related",
+     "medication present" = "Drug Related",
+     "medication contributed" = "Drug Related",
+     "combined substance present" = "Drug Related",
+     "combination contributed" = "Drug Related",
+     "other" = "Other",
+     "not suspect of alcohol use, suspect of drug use" = "Drug Related",
+     "n/a" = "Unknown"
+ )
+ 
+filtered_crashes$Driver.Substance.Abuse[is.na(filtered_crashes$Driver.Substance.Abuse) | 
+                                          filtered_crashes$Driver.Substance.Abuse == "" | grepl("unknown", filtered_crashes$Driver.Substance.Abuse, ignore.case = TRUE)] <- "Unknown"
+
+#| label: Cleaning driver distraction variable
+
+ filtered_crashes$Driver.Distracted.By <- tolower(filtered_crashes$Driver.Distracted.By)
+ 
+ filtered_crashes$Driver.Distracted.By <- dplyr::recode(filtered_crashes$Driver.Distracted.By,
+     "not distracted" = "Not Distracted",
+     "unknown" = "Unknown",
+     "looked but did not see" = "Unknown",
+     "inattentive or lost in thought" = "Internal Distraction",
+     "by other occupants" = "Internal Distraction",
+     "eating or drinking" = "Internal Distraction",
+     "adjusting audio and or climate controls" = "Internal Distraction",
+     "using other device controls integral to vehicle" = "Internal Distraction",
+     "texting from a cellular phone" = "Internal Distraction",
+     "dialing cellular phone" = "Internal Distraction",
+     "talking or listening to cellular phone" = "Internal Distraction",
+     "using device object brought into vehicle" = "Internal Distraction",
+     "other distraction" = "External Distraction",
+     "distracted by outside person object or event" = "External Distraction",
+     "no driver present" = "Other",
+     "other cellular phone related" = "Other",
+     "other electronic device (navigational palm pilot)" = "Other",
+     "smoking related" = "Other",
+     "other action (looking away from task, etc.)" = "Other",
+     "n/a" = "Unknown"
+ )
+ 
+ filtered_crashes$Driver.Distracted.By[is.na(filtered_crashes$Driver.Distracted.By) | filtered_crashes$Driver.Distracted.By == "" | grepl("unknown", filtered_crashes$Driver.Distracted.By, ignore.case = TRUE)] <- "Unknown"
+ 
+ filtered_crashes$Surface.Condition <- as.factor(filtered_crashes$Surface.Condition)
+ filtered_crashes$Driver.Substance.Abuse <- as.factor(filtered_crashes$Driver.Substance.Abuse)
+ filtered_crashes$Driver.Distracted.By <- as.factor(filtered_crashes$Driver.Distracted.By)
+ 
+
+```
+
+**Univariate EDA**
+
+**Injury Severity (Response variable):**
+
+```{r}
+#| label: Bar plot to visualize the Categorical Response Variable (Injury Severity)
+
+
+filtered_crashes |>
+  group_by(Injury.Severity) |>
+  count() |>
+  kable()
+
+```
+
+There are 13,622 cases with suspected minor injuries and 1,755 cases with suspected serious or fatal injuries. This suggests that there may be existing safety precautions on roads and cars to reduce the likelihood of severe injury. Our analysis will focus on determining which variables predict the severity of an injury following a crash.
+
+**Driver Substance Abuse (Predictor Variable):**
+
+```{r}
+substance_count <- filtered_crashes |>
+  count(Driver.Substance.Abuse) |>
+  arrange(desc(n))
+kable(substance_count)
+
+
+ggplot(substance_count, aes(x = fct_reorder(Driver.Substance.Abuse, n, .desc = FALSE), y = n)) +  
+  geom_bar(stat = "identity", fill = "darkorange") +  
+  xlab("Driver Substance Abuse") +  
+  ylab("Count") +  
+  ggtitle("Number of Cases by Driver Substance Use") +  
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  theme(apsect.ratio = 0.4)
+```
+
+Driver Substance Use: The vast majority of crashes involved drivers with no detected substance use (12,191 cases). However, alcohol-related cases (606) and drug-related cases (123) also hold a certain amount of weight.
+
+**Bivariate EDA (Possible Interactions)**
+
+**Speed Limit and Injury Severity:**
+
+```{r}
+filtered_crashes |>
+  ggplot(aes(x = Speed.Limit, y = Injury.Severity)) +
+  geom_boxplot()+  
+  ylab("Injury Severity") +  
+  xlab("Speed Limit") +  
+  ggtitle("Speed Limit by Injury Severity") +
+  theme(aspect.ratio = 0.4)
+```
+
+Overall, the summary for speed limits indicates a range of regulations but most of the car crashes happened at a speed of 32.33 MPH, indicating that there might be other predictor variables involved in the crashes.
+
+**Driver Substance Abuse and Injury Severity:**
+
+```{r}
+#| label: Plot of Driver Substance Abuse by Injury Severity 
+#| fig-width: 10
+#| fig-height: 5
+filtered_crashes |>
+  filter(Driver.Substance.Abuse != is.na(Driver.Substance.Abuse)) |>
+  ggplot(aes(x = Driver.Substance.Abuse, fill = Injury.Severity)) +
+  geom_bar(position = "fill")+  
+  theme_minimal() +  
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Driver Substance Abuse by Injury Severity ",
+       x = "Driver Substance Abuse",
+       fill = "Injury Severity",
+       y = "Proportion")
+
+
+```
+
+The proportion plot shows that alcohol- and drug-related crashes have a noticeably higher proportion of serious or fatal injuries compared to crashes with no substance use detected. Specifically, drug-related cases have around 35% serious/fatal injuries (the highest proportion compared to other categories).
+
+**Collision Type and Injury Severity:**
+
+```{r}
+#| label: Plot of Collision Type by Injury Severity 
+#| fig-width: 10
+#| fig-height: 5
+filtered_crashes <- filtered_crashes |> 
+  mutate(Combined_Collision_Type = case_when(  
+    Collision.Type %in% c("SAME DIR REAR END", "SAME DIR REAR END LEFT TURN",   
+                          "SAME DIR REAR END RIGHT TURN", "REAR TO REAR") ~ "Rear-End Collisions",  
+    
+    Collision.Type %in% c("HEAD ON LEFT TURN", "FRONT TO REAR",   
+                          "ANGLE MEETS LEFT HEAD ON", "OTHER",   
+                          "SAME DIR BOTH LEFT TURN", "OPPOSITE DIR BOTH LEFT TURN") ~ "Front-End Collisions",  
+    
+    Collision.Type %in% c("SAME DIRECTION SIDESWIPE", "SIDESWIPE, SAME DIRECTION",   
+                          "SIDESWIPE, OPPOSITE DIRECTION") ~ "Side Collisions",  
+    
+    Collision.Type %in% c("SAME DIRECTION LEFT TURN", "SAME DIRECTION RIGHT TURN",   
+                          "ANGLE MEETS LEFT TURN", "ANGLE MEETS RIGHT TURN") ~ "Turning Collisions",  
+    
+    Collision.Type %in% c("SINGLE VEHICLE", "OTHER") ~ "Single Vehicle Incidents",  
+    
+    Collision.Type %in% c("UNKNOWN", "N/A") ~ "Unknown or Undefined",  
+    
+    TRUE ~ "Other"  
+  ))  
+
+filtered_crashes |>
+  filter(Combined_Collision_Type != is.na(Combined_Collision_Type)) |>
+  ggplot(aes(x = Combined_Collision_Type, fill = Injury.Severity)) +
+  geom_bar(position = "fill")+  
+  theme_minimal() +  
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Collision Type by Injury Severity ",
+       x = "Collision Type",
+       fill = "Injury Severity",
+       y = "Proportion")
+```
+
+Analyzing collision types reveals that single vehicle incidents are associated with a relatively higher proportion of serious or fatal injuries (around 20%) compared to rear-end, side, or turning collisions. In contrast, rear-end collisions and side collisions are predominantly linked with minor injuries.
+
+## Methods
+
+For our model, we are aiming to predict whether or not a car crash will result in a suspected serious/fatal injury or a suspected minor injury. To do this we will fit our model using logistic regression, since our outcome is binary. In our initial model, we are using weather conditions, road conditions, driver distractions, collision type, substance abuse, and speed limit as our predictors variables due to the established influence that environmental and driver conditions have on car crash severity.
+
+```{r}
+#| label: initial modeling
+
+filtered_crashes <- filtered_crashes |>
+  mutate(Combined_Weather_Type = case_when(  
+    Weather %in% c("CLEAR", "Clear", "CLOUDY", "Cloudy") ~ "Clear Conditions",  
+    
+    Weather %in% c("RAINING", "Rain", "Freezing Rain Or Freezing Drizzle",   
+                   "SLEET", "Sleet Or Hail") ~ "Rainy Conditions",  
+    
+    Weather %in% c("SNOW", "Blowing Snow", "BLOWING SNOW", "WINTRY MIX", "Snow") ~ "Snowy Conditions",  
+    
+    Weather %in% c("FOGGY", "Fog, Smog, Smoke") ~ "Foggy Conditions",  
+    
+    Weather %in% c("N/A", "OTHER", "UNKNOWN", "Unknown",   
+                   "SEVERE WINDS", "Severe Crosswinds",   
+                   "BLOWING SAND, SOIL, DIRT") ~ "Other Weather Conditions",  
+    
+    TRUE ~ "Other"  
+  ))  
+
+filtered_crashes <- filtered_crashes |> 
+  mutate(Injury.Severity = factor(Injury.Severity, levels = 
+                                    c("Suspected Minor Injury",
+                                           "Suspected Serious/Fatal Injury")))
+
+#Fit the logistic regression model
+
+injury_severity_fit <- glm(Injury.Severity ~ Combined_Weather_Type + Driver.Distracted.By
+                           + Surface.Condition + Combined_Collision_Type + 
+                             Driver.Substance.Abuse + Speed.Limit, 
+                           data = filtered_crashes, family = binomial)
+
+#augment the model 
+injury_severity_aug <- augment(injury_severity_fit)
+
+#plot the roc curve
+roc_curve_data <- injury_severity_aug |> 
+  roc_curve(Injury.Severity, .fitted, event_level = "second") 
+
+
+#autoplot(roc_curve_data)
+
+
+#calculating area under the curve
+injury_severity_aug |> 
+  roc_auc(Injury.Severity,
+          .fitted, event_level = "second")
+```
+
+The initial model has an AUC of approximately 0.664. This means our model is better at predicting the severity of an injury than randomly guessing, however the prediction could be better. To improve the model, we decided to add a predictor variable for the vehicle body type of the collision. This is because the body type of a vehicle may impact the severity of an injury because larger vehicles like SUVs are larger in size and heavier which may offer more protections to the driver. A motorcycle on the other hand offers very little physical protection for the driver. Additionally we added another categorical variable to assess the extent of damage to the drivers vehicle, since this may also impact injury severity.
+
+```{r}
+#| label: new model w/ vehicle type & damage 
+
+ filtered_crashes <- filtered_crashes |>
+   mutate(Vehicle.Damage.Extent = case_when(  
+     Vehicle.Damage.Extent %in% c("DESTROYED") ~ "Destroyed",  
+     
+     Vehicle.Damage.Extent %in% c("Disabling", "DISABLING") ~ "Disabling",  
+     
+     Vehicle.Damage.Extent %in% c("Superficial", "SUPERFICIAL") ~ "Superficial",  
+     
+     Vehicle.Damage.Extent %in% c("N/A", "No Damage", "NO DAMAGE") ~ "No Damage",  
+     
+     Vehicle.Damage.Extent %in% c("Functional", "FUNCTIONAL") ~ "Functional",  
+     
+     TRUE ~ "Other"  
+   ))  
+ 
+filtered_crashes <- filtered_crashes |>
+   mutate(Vehicle.Body.Type = case_when(  
+     Vehicle.Body.Type %in% c("MOPED","Moped Or motorized bicycle", "MOTORCYCLE", 
+                              "Motorcycle - 2 Wheeled", "Motorcycle - 3 Wheeled") ~
+       "Motorcycle",  
+     Vehicle.Body.Type %in% c("Pickup" ,"PICKUP TRUCK") ~ "Passenger Truck",  
+     Vehicle.Body.Type %in% c("Passenger Car", "PASSENGER CAR") ~ "Passenger Car",  
+     Vehicle.Body.Type %in% c("TRUCK TRACTOR", "TRUCK TRACTOR") ~ "Tractor",  
+     Vehicle.Body.Type %in% c("Unknown", "UNKNOWN" ) ~ "Unknown",  
+     Vehicle.Body.Type %in% c("VAN", "Van - Cargo", "Van - Passenger (&lt;9 Seats)") ~ "Van",  
+     TRUE ~ "Other"  
+   ))  
+
+ filtered_crashes$Vehicle.Damage.Extent <- as.factor(filtered_crashes$Vehicle.Damage.Extent)
+ filtered_crashes$Vehicle.Body.Type <- as.factor(filtered_crashes$Vehicle.Body.Type)
+
+# Fit the logistic regression model 
+injury_severity_fit_full <- glm(Injury.Severity ~ Combined_Weather_Type + 
+                                  Driver.Distracted.By + Surface.Condition + 
+                                  Combined_Collision_Type + Driver.Substance.Abuse + 
+                                  Vehicle.Body.Type + Speed.Limit + Vehicle.Damage.Extent, 
+                                data = filtered_crashes, family = binomial)
+
+#augment the model 
+
+injury_severity_full_aug <- augment(injury_severity_fit_full)
+
+#plot the roc curve
+
+roc_curve_data2 <- injury_severity_full_aug |>
+  roc_curve(Injury.Severity, 
+            .fitted, event_level = "second")
+
+#autoplot(roc_curve_data2)
+
+#calculating area under the curve 
+injury_severity_full_aug |> 
+  roc_auc(Injury.Severity, 
+          .fitted, event_level = "second")
+```
+
+Adding the variables for vehicle body type and vehicle damage to our model improved our models prediction. The area under the curve increased to 0.758 for this model, which suggests that our model improved.
+
+Additionally we checked the VIF to see if any of are predictor variables are strongly correlated with each other.
+
+```{r}
+vif(injury_severity_fit_full)
+```
+
+The output shows that none of the variables had a VIF of 10 or greater, suggesting that our model will not have issues with multicollinearity. However, we are aware that weather and surface conditions are similar variables so we would like to check if there is an interaction effect and if that helps in improving the predictability of our model:
+
+```{r}
+# Fit the logistic regression model 
+injury_severity_fit_full_interact <- glm(Injury.Severity ~ Combined_Weather_Type * 
+                                  Surface.Condition + Driver.Distracted.By + Combined_Collision_Type + Driver.Substance.Abuse + 
+                                  Vehicle.Body.Type + Speed.Limit + Vehicle.Damage.Extent, 
+                                data = filtered_crashes, family = binomial)
+
+
+
+#augment the model 
+
+injury_severity_full_aug_interact <- augment(injury_severity_fit_full_interact)
+
+#plot the roc curve
+
+roc_curve_data2 <- injury_severity_full_aug_interact |>
+  roc_curve(Injury.Severity, 
+            .fitted, event_level = "second")
+
+#autoplot(roc_curve_data2)
+
+#calculating area under the curve 
+injury_severity_full_aug_interact|> 
+  roc_auc(Injury.Severity, 
+          .fitted, event_level = "second")
+```
+
+The AUC for the model including the interaction between surface condition and weather condition is 0.759, which was only a slight increase from the AUC of the full additive model. However, since many of the predictor variables are categorical, the interaction effect will make it more difficult for the model to be interpreted and decisions to be made for only a small increase in the AUC. For this reason, we decided to return to the full model without an interaction and compare it's performance against another version of the model with fewer predictors.
+
+For the reduced model, we removed the variables for weather type, surface condition, and driver distraction. Next we performed a drop in deviance test and compared the AIC and BIC for the 2 models in order to select the best model.
+
+```{r}
+#| label: removing unhelpful variables
+
+#Fit the logistic regression model
+
+injury_severity_fit_reduced <- glm(Injury.Severity ~ Combined_Collision_Type + 
+                                     Driver.Substance.Abuse + Vehicle.Body.Type + 
+                                     Speed.Limit + Vehicle.Damage.Extent, 
+                                   data = filtered_crashes, family = binomial)
+
+#augment the model 
+injury_severity_aug_reduced <- augment(injury_severity_fit_reduced)
+
+
+#drop-in-deviance test 
+
+anova(injury_severity_fit_reduced, injury_severity_fit_full, test = "Chisq") |> 
+  tidy() |> 
+  kable(digits = 3, format = "latex", booktabs = TRUE, longtable = TRUE) |>
+  kable_styling(latex_options = c("striped", "hold_position")) |>
+  column_spec(1, width = "8cm")
+
+#using AIC and BIC for Model Comparison
+
+model_comparison <- tibble( Metric = c("AIC", "BIC"), 
+                            Full_Model = c(glance(injury_severity_fit_full)$AIC,
+                 glance(injury_severity_fit_full)$BIC), 
+                 Reduced_Model = c(glance(injury_severity_fit_reduced)$AIC,
+                    glance(injury_severity_fit_reduced)$BIC) )
+
+model_comparison
+```
+
+The full model is being selected for our final model due to the lower AIC when compared to the reduced model. The drop-in-deviance confirms this since the p-value is approximately 0. This mean that the data does provide sufficient evidence that the addition of the variables for weather condition, surface condition, and driver distraction significantly impacts the model's prediction. Therefore we reject the null hypothesis that these variables have coefficients that are equal to 0. We will proceed using the full model.
+
+```{r, fig.width=4, fig.height=3}
+#| label: choosing threshold value for final model
+
+
+#plot the roc curve
+
+roc_curve_data3 <- injury_severity_full_aug |> 
+  roc_curve(Injury.Severity, .fitted, event_level = "second")
+
+autoplot(roc_curve_data3)
+```
+
+Based on the ROC curve, we decided to use a decision making threshold of 0.1 to classify injuries as either serious/fatal and minor. The reason behind choosing 0.1 as the threshold is that it minimizes our false negative rate, which is the percent of fatal crashes that is predicted to be non-fatal by our model. We want to minize this rate because a factor that could cause a fatal crash should be taken seriously. The confusion matrix is shown below for this threshold value.
+
+```{r, fig.width=5, fig.height=3}
+#| label: making confusion matrix
+
+#calculate predicted probabilities and class 
+filtered_crashes <- filtered_crashes |>
+  mutate(pred_prob3 = predict(injury_severity_fit_full, type = "response"))
+
+filtered_crashes <- filtered_crashes |> 
+  mutate(pred_class3 = if_else(pred_prob3 > 0.1, 
+                              "Suspected Serious/Fatal Injury", "Suspected Minor Injury"),
+         pred_class3 = as.factor(pred_class3))
+
+filtered_crashes <- filtered_crashes |> 
+  mutate(pred_class3 = factor(pred_class3, levels = levels(Injury.Severity)))
+
+#confusion matrix 
+filtered_crashes |> 
+  conf_mat(truth = Injury.Severity, estimate = pred_class3) |> 
+  autoplot(type = "heatmap")
+
+
+```
+
+Our final model uses weather type, surface condition, driver distraction, collision type, driver substance abuse, vehicle body type, vehicle damage extent, and the speed limit to predict the severity of an injury following a car crash. The area under the curve is approximately 0.758 which means our model does a fair job of predicting injury severity.
+
+## **Results**
+
+To investigate factors affecting the severity of driver injuries following a crash, we first constructed a baseline logistic regression model using key predictors identified from the exploratory analysis. These predictors included weather conditions, driver distraction type, road surface conditions, collision type, driver substance abuse, and speed limit (the rest of the exploratory data analysis is in the appendix). The model output yielded an area under the ROC curve (AUC) of approximately 0.664, indicating better-than-random performance but highlighting significant room for improvement. This suggests that while environmental and behavioral factors captured some relationship with injury severity, the variables for that model were not good enough to build a highly accurate predictive model.
+
+To enhance model performance, we incorporated additional vehicle-related variables: vehicle body type and the extent of vehicle damage. The inclusion of these variables notably improved the model’s predictive power, with the AUC rising to approximately 0.758. This result highlights the critical role that vehicle characteristics play in crash outcomes. The damage extent variable, reflecting the physical severity of the crash, also emerged as a strong indicator of injury seriousness. To evaluate model parsimony, a reduced version excluding weather conditions, surface conditions, and driver distraction was compared to the full model. However, a drop-in-deviance test confirmed that the additional variables significantly contributed to model fit, and AIC also favored the full model.
+
+Consequently, we selected the full model as the final predictive model. Using a decision threshold of 0.1—chosen based on the ROC curve—the confusion matrix showed reasonable separation between minor and serious/fatal injury classifications. The final model, integrating environmental conditions, driver behaviors, collision circumstances, and vehicle-specific factors, achieved an AUC of approximately 0.758, indicating fair predictive ability. This model provides a data-driven tool for understanding and potentially mitigating the risk factors associated with severe traffic injuries.
+
+The output of our model is displayed in the Appendix and shows that the odds of an accident resulting in a suspected serious/fatal injury compared to a minor injury are most impacted by the body type of vehicle involved in the accident. Vehicles in the "Other" category are associated with significantly lower odds of suspected serious/fatal injury compared to the baseline group of motorcycles. Additionally passenger trucks and passenger cars also have significantly lower odds of severe injury compared to motorcycles (being the baseline variable), with the odds of severe injury being expected to multiply by a factor of 0.172 (exp(-1.759)) and 0.111(exp(-2.195)) respectively, holding all else constant. The odds of drivers in accidents with no substance abuse causing a suspected serious/fatal injury are expected to multiply by a factor of 0.583 (exp(-0.539)) (significantly lower odds) when compared to the odds of drivers who were suspect of alcohol use, holding all else constant.
+
+## **Discussion and Conclusion**
+
+Overall, weather and road conditions, driver distractions, driver substance abuse, speed limit, vehicle damage, vehicle type, and collision type all influence the severity of an injury following a car accident. The odds of an accident resulting in a suspected serious/fatal injury are greatest for accidents that involve motorcycles or drivers that were under the influence of alcohol.
+
+Based on the confusion matrix, the model is better at correctly identifying the suspected minor injuries by approximately 94% as compared to only approximately 23% for the suspected serious/fatal injuries. Though, the accuracy for the full model is approximately good enough of 70.88%, but improvement needs to be made for correctly predicting suspected serious/fatal injuries.
+
+The interaction effect of weather conditions and surface conditions only increases the area under the curve from 0.758 to 0.759 in the model. It has not been included in our final model as it does not increase the accuracy of our model by a significant enough difference to warrant the added difficulty in interpreting the model (appendix).
+
+The primary limitation of our model is that many of our predictor variables are categorical. This makes interpreting our model output more difficult, since there are many factors that contribute to injuries in a car accident. Additionally the standard errors of the coefficients that had the strongest effects in our model were very large, which could indicate issues with the reliability of our model or possibly multicollinearity.
+
+Future work could involve doing a multinomial logistic regression to analyze injury severity by considering all possible levels of injury, rather than dividing it into two categories. Additionally, the model would allow us to analyze cases where no injuries occurred. This would help in doing a broader analysis of understanding how many crashes actually caused injuries, in addition to understanding the severity of these injuries. Lastly, cross validation of the dataset would also be useful to understand how well our model performs against the testing set.
+
+\pagebreak
+
+**Appendix**
+
+**Reference**
+
+Montgomery County of Maryland. (2025, April 26). *Crash Reporting - Drivers Data* \[Dataset\]. data.montgomerycountymd.gov. <https://catalog.data.gov/dataset/crash-reporting-drivers-data>
+
+**Full Model Output:**
+
+```{r}
+injury_severity_fit_full |>
+  tidy() |>
+  kable(digits = 3)
+```
+
+**Interaction Model Output:**
+
+```{r}
+injury_severity_fit_full_interact |>
+  tidy() |>
+  kable(digits = 3)
+```
+
+This interaction model shows the additional variables effects of interaction of weather and surface conditions with the clear weather and dry surface as the baseline categories for the odds of suspected serious/fatal injuries.
+
+**Additional EDA not included:**
+
+**Univariate EDA:**
+
+**Plot of Injury Severity variable before rearranging into new categories:**
+
+```{r}
+#| label: Injury Severity Plot 
+
+crashes <- crashes_original
+
+crashes$Injury.Severity <- tolower(crashes$Injury.Severity)  # Convert to lower case  
+crashes$Injury.Severity <- dplyr::recode(crashes$Injury.Severity,  
+                              "no apparent injury" = "No Apparent Injury",  
+                              "suspected minor injury" = 
+                                "Suspected Minor Injury",  
+                              "possible injury" = "Possible Injury",  
+                              "suspected serious injury" = 
+                                "Suspected Serious Injury",  
+                              "fatal injury" = "Fatal Injury") 
+
+injury_count <- crashes |>
+  dplyr::group_by(Injury.Severity) |>
+  dplyr::summarize(count = n()) |>
+  dplyr::arrange(count)
+
+injury_count$Injury.Severity <- factor(injury_count$Injury.Severity, levels = injury_count$Injury.Severity)
+
+ggplot(injury_count, aes(x = Injury.Severity, y = count)) +  
+  geom_bar(stat = "identity", fill = "lightcoral") +  
+  xlab("Injury Severity") +  
+  ylab("Count") +  
+  ggtitle("Frenquency of Injury Severity") +  
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+injury_count <- crashes |>
+  group_by(Injury.Severity) |>
+  count()
+
+kable(injury_count)
+```
+
+Majority of the crashes did not involve any accidents (they have the highest number of crashes - 157,225). This is the reason why we only focused on crashes in which injury actually occurred and divided it into two types (suspected minor/possible injury)
+
+**Surface condition and Driver distraction:**
+
+```{r}
+#| label: Cleaning of Surface Condition Variable
+filtered_crashes$Surface.Condition <- tolower(filtered_crashes$Surface.Condition)
+
+filtered_crashes$Surface.Condition <- dplyr::recode(filtered_crashes$Surface.Condition,
+    "dry" = "Dry", "wet" = "Wet", 
+    "snow" = "Icy/Snowy", "slush" = "Icy/Snowy",
+    "ice" = "Icy/Snowy", "ice/frost" = "Icy/Snowy",
+    "mud, dirt, gravel" = "Other", "sand" = "Other",
+    "water (standing, moving)" = "Wet", "oil" = "Other",
+    "other" = "Other",
+    "n/a" = "Unknown"
+)
+
+filtered_crashes$Surface.Condition[is.na(filtered_crashes$Surface.Condition) | filtered_crashes$Surface.Condition == "" | grepl("unknown", filtered_crashes$Surface.Condition, ignore.case = TRUE)] <- "Unknown"
+
+
+#| label: Cleaning of Driver Distraction Variable
+
+filtered_crashes$Driver.Distracted.By <- tolower(filtered_crashes$Driver.Distracted.By)
+
+filtered_crashes$Driver.Distracted.By <- dplyr::recode(filtered_crashes$Driver.Distracted.By,
+    "not distracted" = "Not Distracted",
+    "unknown" = "Unknown",
+    "looked but did not see" = "Unknown",
+    "inattentive or lost in thought" = "Internal Distraction",
+    "by other occupants" = "Internal Distraction",
+    "eating or drinking" = "Internal Distraction",
+    "adjusting audio and or climate controls" = "Internal Distraction",
+    "using other device controls integral to vehicle" = "Internal Distraction",
+    "texting from a cellular phone" = "Internal Distraction",
+    "dialing cellular phone" = "Internal Distraction",
+    "talking or listening to cellular phone" = "Internal Distraction",
+    "using device object brought into vehicle" = "Internal Distraction",
+    "other distraction" = "External Distraction",
+    "distracted by outside person object or event" = "External Distraction",
+    "no driver present" = "Other",
+    "other cellular phone related" = "Other",
+    "other electronic device (navigational palm pilot)" = "Other",
+    "smoking related" = "Other",
+    "other action (looking away from task, etc.)" = "Other",
+    "n/a" = "Unknown"
+)
+
+filtered_crashes$Driver.Distracted.By[is.na(filtered_crashes$Driver.Distracted.By) | filtered_crashes$Driver.Distracted.By == "" | grepl("unknown", filtered_crashes$Driver.Distracted.By, ignore.case = TRUE)] <- "Unknown"
+
+
+filtered_crashes$Surface.Condition <- as.factor(filtered_crashes$Surface.Condition)
+filtered_crashes$Driver.Substance.Abuse <- as.factor(filtered_crashes$Driver.Substance.Abuse)
+filtered_crashes$Driver.Distracted.By <- as.factor(filtered_crashes$Driver.Distracted.By)
+
+
+filtered_crashes <- filtered_crashes |>
+  filter(Surface.Condition != "Unknown") |>
+  filter(Driver.Substance.Abuse != "Unknown") |>
+  filter(Driver.Distracted.By != "Unknown")
+```
+
+```{r}
+library(forcats)
+
+
+surface_count <- filtered_crashes |>
+  count(Surface.Condition) |>
+  arrange(desc(n))
+
+kable(surface_count)
+
+
+ggplot(surface_count, aes(x = fct_reorder(Surface.Condition, n, .desc = FALSE), y = n)) +  
+  geom_bar(stat = "identity", fill = "steelblue") +  
+  xlab("Surface Condition") +  
+  ylab("Count") +  
+  ggtitle("Number of Cases by Road Surface Condition") +  
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+distraction_count <- filtered_crashes |>
+  count(Driver.Distracted.By) |>
+  arrange(desc(n))
+kable(distraction_count)
+
+
+ggplot(distraction_count, aes(x = fct_reorder(Driver.Distracted.By, n, .desc = FALSE), y = n)) +  
+  geom_bar(stat = "identity", fill = "mediumseagreen") +  
+  xlab("Driver Distraction") +  
+  ylab("Count") +  
+  ggtitle("Number of Cases by Driver Distraction") +  
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+Road Surface Condition: The majority of crashes occurred on dry roads (7241 cases), followed by wet roads (1744 cases). Crashes on icy or snowy surfaces were significantly lower (150 cases), while other surface conditions, including standing or moving water, accounted for only a small fraction. The high number of crashes on dry roads suggests that environmental conditions alone may not be the primary predictor of crash severity; other factors such as driver behavior and traffic conditions may play a larger role.
+
+Driver Distraction: A substantial proportion of crashes involved drivers who were not distracted (8412 cases). However, internal distractions (361 cases), such as adjusting controls or eating, and external distractions (274 cases), such as observing outside events, also hold a certain amount of weight. Other minor categories, such as talking/listening (3 cases) and manually operating a device (1 cases), had significantly lower frequencies.
+
+**Collision Type:**
+
+```{r}
+filtered_crashes <- filtered_crashes |> 
+  mutate(Combined_Collision_Type = case_when(  
+    Collision.Type %in% c("SAME DIR REAR END", "SAME DIR REAR END LEFT TURN",   
+                          "SAME DIR REAR END RIGHT TURN", "REAR TO REAR") ~ "Rear-End Collisions",  
+    
+    Collision.Type %in% c("HEAD ON LEFT TURN", "FRONT TO REAR",   
+                          "ANGLE MEETS LEFT HEAD ON", "OTHER",   
+                          "SAME DIR BOTH LEFT TURN", "OPPOSITE DIR BOTH LEFT TURN") ~ "Front-End Collisions",  
+    
+    Collision.Type %in% c("SAME DIRECTION SIDESWIPE", "SIDESWIPE, SAME DIRECTION",   
+                          "SIDESWIPE, OPPOSITE DIRECTION") ~ "Side Collisions",  
+    
+    Collision.Type %in% c("SAME DIRECTION LEFT TURN", "SAME DIRECTION RIGHT TURN",   
+                          "ANGLE MEETS LEFT TURN", "ANGLE MEETS RIGHT TURN") ~ "Turning Collisions",  
+    
+    Collision.Type %in% c("SINGLE VEHICLE", "OTHER") ~ "Single Vehicle Incidents",  
+    
+    Collision.Type %in% c("UNKNOWN", "N/A") ~ "Unknown",  
+    
+    TRUE ~ "Unknown"  
+  ))  
+
+combined_crash_count <- filtered_crashes |>
+  dplyr::group_by(Combined_Collision_Type) |>
+  dplyr::summarize(count = n()) |>
+  dplyr::arrange(count)
+
+combined_crash_count$Combined_Collision_Type <- factor(combined_crash_count$Combined_Collision_Type, levels = combined_crash_count$Combined_Collision_Type)
+
+
+ggplot(combined_crash_count, aes(x = Combined_Collision_Type, y = count)) + 
+  geom_bar(stat = "identity", fill = "steelblue") +  
+  labs(x = "Combined Collision Type", y = "count" , title = "Number of Cases by Combined Collision Type") +  
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  
+
+
+kable(combined_crash_count)
+```
+
+The bar plot above now gives a much more broader view of the crashes by collision types. The "unknown" category collisions were the highest (4,289 crashes) followed by rear-end collisions (3,084).
+
+**Weather Conditions:**
+
+```{r}
+Weather_count <- filtered_crashes |>
+  group_by(Weather) |>
+  summarize(count = n()) |>
+  arrange(count)
+
+Weather_count$Weather <- factor(Weather_count$Weather, levels = Weather_count$Weather)
+
+ggplot(Weather_count, aes(x = Weather, y = count)) +  
+  geom_bar(stat = "identity") +  
+  labs(x = "Weather Type",   
+       y = "Count",   
+       title = "Number of Cases by Weather Type") +  
+  theme_minimal() +  
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+Based on the bar plot above, the highest number of weather type crashes occurred when the weather was clear (with more than 7500 crashes), while cloudy and raining weather also showing a significant number of crashes.
+
+However, we will modify this variable the same way collision types are modified for a more broader and clearer analysis:
+
+```{r}
+Weather <- filtered_crashes |>
+  count(Weather) |>
+  arrange(desc(n))
+kable(Weather)
+```
+
+```{r}
+filtered_crashes <- filtered_crashes |>
+  mutate(Combined_Weather_Type = case_when(  
+    Weather %in% c("CLEAR", "Clear", "CLOUDY", "Cloudy") ~ "Clear Conditions",  
+    
+    Weather %in% c("RAINING", "Rain", "Freezing Rain Or Freezing Drizzle",   
+                   "SLEET", "Sleet Or Hail") ~ "Rainy Conditions",  
+    
+    Weather %in% c("SNOW", "Blowing Snow", "BLOWING SNOW", "WINTRY MIX", "Snow") ~ "Snowy Conditions",  
+    
+    Weather %in% c("FOGGY", "Fog, Smog, Smoke") ~ "Foggy Conditions",  
+    
+    Weather %in% c("N/A", "OTHER", "UNKNOWN", "Unknown",   
+                   "SEVERE WINDS", "Severe Crosswinds",   
+                   "BLOWING SAND, SOIL, DIRT") ~ "Other Weather Conditions",  
+    
+    TRUE ~ "Other"  # Catch-all for categories not explicitly defined  
+  ))  
+
+combined_weather_count <- filtered_crashes |>
+  group_by(Combined_Weather_Type) |>
+  summarize(count = n()) |>
+  arrange(count)
+
+combined_weather_count$Combined_Weather_Type <- factor(combined_weather_count$Combined_Weather_Type, levels = combined_weather_count$Combined_Weather_Type)
+
+
+ggplot(combined_weather_count, aes(x = Combined_Weather_Type, y = count)) +  
+  geom_bar(stat = "identity", fill = "steelblue") +  
+  labs(x = "Combined Weather Type", y = "Count", title = "Number of Cases by Combined Weather Type") +  
+  theme_minimal() +  
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  
+
+
+kable(combined_weather_count)
+```
+
+As we can see from the updated plot, the crashes were highest when the weather conditions were clear (8,439 crashes) followed by rainy weather (1,432) crashes.
+
+**Bivariate EDA (additional variables not included in the model):**
+
+**Surface condition and Injury Severity:**
+
+```{r}
+#| label: Plot of Road Surface Condition by Injury Severity 
+#| fig-width: 10
+#| fig-height: 5
+filtered_crashes |>
+  filter(Surface.Condition != is.na(Surface.Condition)) |>
+  ggplot(aes(x = Surface.Condition, fill = Injury.Severity)) +
+  geom_bar(position = "fill")+  
+  theme_minimal() +  
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Road Surface Condition by Injury Severity ",
+       x = "Road Surface Condition",
+       fill = "Injury Severity",
+       y = "Proportion")
+
+filtered_crashes |>
+  group_by(Injury.Severity) |>
+  count(Surface.Condition) |>
+  kable()
+
+```
+
+The rates at which serious/fatal injuries occur and minor injuries occur appear to be similar across road surface condition except that only suspected minor injuries occur in the water (standing/moving category).
+
+**Driver Distraction and Injury Severity:**
+
+```{r}
+#| label: Plot of Driver Distractions by Injury Severity 
+#| fig-width: 10
+#| fig-height: 5
+filtered_crashes |>
+  filter(Driver.Distracted.By != is.na(Driver.Distracted.By)) |>
+  ggplot(aes(x = Driver.Distracted.By, fill = Injury.Severity)) +
+  geom_bar(position = "fill")+  
+  theme_minimal() +  
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Driver Distraction by Injury Severity ",
+       x = "Driver Distraction",
+       fill = "Injury Severity",
+       y = "Proportion")
+```
+
+The rates at which serious/fatal injuries occur and minor injuries occur appear to be similar across driver distraction categories except that there's a comparatively higher number of suspected serious/fatal injuries when the driver is talking/listening to someone/something.
+
+**Weather Conditions and Injury Severity:**
+
+```{r}
+#| label: Plot of Weather Conditions by Injury Severity 
+#| fig-width: 10
+#| fig-height: 5
+filtered_crashes |>
+  filter(Combined_Weather_Type != is.na(Combined_Weather_Type)) |>
+  ggplot(aes(x = Combined_Weather_Type, fill = Injury.Severity)) +
+  geom_bar(position = "fill")+  
+  theme_minimal() +  
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Weather Conditions by Injury Severity ",
+       x = "Weather Condition",
+       fill = "Injury Severity",
+       y = "Proportion")
+```
+
+The rates at which serious/fatal injuries occur and minor injuries occur appear to be similar across weather condition categories.
+
+**Possible interactions (Weather Type with Surface Condition and Injury Severity):**
+
+```{r}
+filtered_crashes <- filtered_crashes |>
+  mutate(Combined_Weather_Type = case_when(  
+    Weather %in% c("CLEAR", "Clear", "CLOUDY", "Cloudy") ~ "Clear",  
+    
+    Weather %in% c("RAINING", "Rain", "Freezing Rain Or Freezing Drizzle",   
+                   "SLEET", "Sleet Or Hail") ~ "Rainy",  
+    
+    Weather %in% c("SNOW", "Blowing Snow", "BLOWING SNOW", "WINTRY MIX", "Snow") ~ "Snowy",  
+    
+    Weather %in% c("FOGGY", "Fog, Smog, Smoke") ~ "Foggy",  
+    
+    Weather %in% c("N/A", "OTHER", "UNKNOWN", "Unknown",   
+                   "SEVERE WINDS", "Severe Crosswinds",   
+                   "BLOWING SAND, SOIL, DIRT") ~ "Other",  
+    
+    TRUE ~ "Other"  # Catch-all for categories not explicitly defined  
+  ))  
+
+#| label: Plot of Injury Serverity by Weather and Road Conditions
+#| fig-width: 15
+#| fig-height: 10
+filtered_crashes |>
+  filter(Combined_Weather_Type != is.na(Combined_Weather_Type)) |>
+  ggplot(
+    aes(x = Surface.Condition, fill = Injury.Severity)) +
+  geom_bar(position = "fill") + 
+  facet_wrap(~ Combined_Weather_Type) + 
+  theme_minimal() +
+  labs(title = "Interaction Effect Plot",
+       x = "Road Conditions", y = "Proportion", fill = "Injury Severity")+  
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+```
+
+The plot illustrates the relationship between weather conditions, surface conditions, and injury severity. Each small bar graph represents different weather types (top labels). Each graph shows the effect of multiple surface condition categories. The bars display the proportion of suspected minor injuries (red) versus suspected serious/fatal injuries (blue). Overall, minor injuries tend to predominate across all weather conditions, with slight variations in the proportions of severe injuries.
+
+::: callout-important
+Before you submit, make sure your code chunks are turned off with `echo: false` and there are no warnings or messages with `warning: false` and `message: false` in the YAML.
+:::
