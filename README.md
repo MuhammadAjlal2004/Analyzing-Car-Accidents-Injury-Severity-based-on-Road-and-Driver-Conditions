@@ -7,7 +7,7 @@ This repository analyzes traffic accident data from Montgomery County, Maryland,
 
 ## Methodology & Data
 
-*   **Dataset:** Data was sourced from the Automated Crash Reporting System (ACRS) via local Maryland police departments[cite: 1].
+*   **Dataset:** Data was sourced from the Automated Crash Reporting System (ACRS) via local Maryland police departments [Dataset Link](Crash_Reporting_-_Drivers_Data.csv).
 *   **Target Variable:** The analysis focused exclusively on cases where injuries occurred, restructuring the response variable into a binary outcome: *Suspected Serious/Fatal Injury* (1,755 cases) and *Suspected Minor Injury* (13,622 cases).
 *   **Modeling:** A full binary logistic regression model was selected over a reduced model following a drop-in-deviance test and AIC/BIC evaluation.
 *   **Thresholding:** A decision-making threshold of 0.1 was applied based on the ROC curve to minimize the false-negative rate, prioritizing the accurate classification of potentially fatal crashes.
