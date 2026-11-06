@@ -2,7 +2,7 @@
 
 **Tools Used:** R, Logistic Regression, Data Visualization
 
-## Executive Summary
+## Summary
 This repository analyzes traffic accident data from Montgomery County, Maryland, to determine which environmental, behavioral, and vehicular variables most significantly impact the severity of driver injuries following a collision. By developing a binary logistic regression model, this project provides data-driven insights into the primary risk factors associated with severe traffic injuries.
 
 ## Methodology & Data
